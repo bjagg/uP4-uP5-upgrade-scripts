@@ -1,8 +1,8 @@
 #!/usr/bin/env lein-exec
 
-(use '[clojure.java.io :only (as-file)]
+(use '[clojure.java.io :only (as-file file)]
      '[clojure.xml :as xml]
-     '[clojure.zip :as zip]
+     '[clojure.zip :as zip :only (xml-zip children)]
      '[clojure.string :as s :only (split split-lines trim)]
      '[clojure.pprint :as pp :only (pprint print-table)])
 (import '[javax.xml.parsers SAXParserFactory])
@@ -18,6 +18,20 @@
   (do
     (println "File" groupstore-filename "could not be found! - exting ...")
     (System/exit 1)))
+
+;; Determine output directory
+
+(defn get-valid-output-dir
+  []
+  (if-let [file (as-file (nth *command-line-args* 2 nil))]
+    (if (or (.isDirectory file) (.mkdirs file))
+      (.getAbsolutePath file)
+      ".")
+    "."))
+
+(def output-dir (get-valid-output-dir))
+
+(println output-dir)
 
 ;; Parse file into a sequence of PAGS
 
@@ -93,7 +107,7 @@
 
 (defn write-group-to-file
   [group]
-  (let [filename (calc-group-filename group)]
+  (let [filename (file output-dir (calc-group-filename group))]
     (try
       (let [xml-str (-> group 
                         emit
