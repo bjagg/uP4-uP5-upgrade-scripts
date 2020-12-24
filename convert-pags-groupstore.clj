@@ -52,7 +52,21 @@
 (def groupstore-zip (zip/xml-zip groupstore-xml))
 
 ;;
-;; Convert from old format to new format
+;; Create map of old group keys to group names
+;;
+
+(defn map-group-key-name
+  "Returns a map from the group key to the name"
+  []
+  (->> (dzx/xml-> groupstore-zip :group)
+       (map #(hash-map (dzx/xml1-> % :group-key dzx/text) (dzx/xml1-> % :group-name dzx/text)))
+       (into {})))
+
+(def key-name-remap (map-group-key-name))
+;(pp/pprint key-name-remap)
+
+;;
+;; Functions for manipulating xml-zip
 ;;
 
 (defn zip-walk 
@@ -67,10 +81,19 @@
   [loc]
   (let [node (zip/node loc)]
     (if (:tag node)
-      (println (str (:tag node) " " (:attrs node)))
+      (println (str (:tag node) " " (first (:content node))))
       ;(prn node)
       ))
-    loc)
+  loc)
+
+(defn remove-by-tag
+  "Takes a tag keyword to remove nodes with that tag"
+  [tag]
+  (fn [loc]
+    (let [is-tag? #(= tag (:tag (zip/node %)))]
+      (if (is-tag? loc)
+        (zip/remove loc)
+        loc))))
 
 (defn edit-by-tag
   "Takes a tag keyword and a function that takes an xml element and returns an xml element to edit the node"
@@ -93,26 +116,40 @@
   (let [f #(assoc % :content (vector (replace-first (-> % :content first) regex new-str)))]
     (edit-by-tag tag f)))
 
+(defn remap-content-text
+  "Map the content text to new value based on a map"
+  [tag content-map]
+  (let [f #(assoc % :content (vector (get content-map (-> % :content first) "no key found")))]
+    (edit-by-tag tag f)))
+
 (defn add-attr-map
   "Add an map of attributes to a tag"
   [tag attrs]
   (edit-by-tag tag #(assoc % :attrs attrs)))
 
-(zip-walk print-tag groupstore-zip)
-(println "starting new-zip")
-(def convert-pags (comp (rename-tag :group :pags-group)
+;;
+;; Convert from old format to new format
+;;
+
+;(zip-walk print-tag groupstore-zip)
+
+; note: comp functions are applied in reverse order
+(def convert-pags (comp (remove-by-tag :group-key)
+                        (rename-tag :group :pags-group)
                         (rename-tag :group-description :description)
+                        (rename-tag :group-name :name)
+                        (rename-tag :member-key :member-name)
+                        (remap-content-text :member-key key-name-remap)
                         (replace-content-text :tester-class #"jasig" "apereo")
                         (add-attr-map :group {:script "classpath://org/jasig/portal/io/import-pags-group_v4-1.crn"})))
-(def new-zip (zip-walk convert-pags groupstore-zip))
-(println "done with new-zip")
-(prn new-zip)
-(zip-walk print-tag (zip/xml-zip new-zip))
+(def new-xml (zip-walk convert-pags groupstore-zip))
+;(prn new-xml)
+;(zip-walk print-tag (zip/xml-zip new-xml))
 (System/exit 0)
 
 ;; Create a sequence of the groups as elements
 
-;(def group-seq (dzx/xml-> groupstore-zip :group))
+;(def group-seq (dzx/xml-> (zip/xml-zip new-xml) :group))
 (def group-seq (->> groupstore-xml
                     :content
                     (filter #(= (:tag %) :group))))
@@ -171,7 +208,7 @@
   [group]
   (let [filename (file output-dir (calc-group-filename group))]
     (try
-      (let [xml-str (-> group 
+      (let [xml-str (-> group
                         emit
                         with-out-str
                         (clojure.string/replace #"&" "&amp;")
