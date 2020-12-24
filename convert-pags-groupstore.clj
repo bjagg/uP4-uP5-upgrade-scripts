@@ -131,6 +131,7 @@
 ;; Convert from old format to new format
 ;;
 
+;(println (zip/node (first (dzx/xml-> groupstore-zip :group))))
 ;(zip-walk print-tag groupstore-zip)
 
 ; note: comp functions are applied in reverse order
@@ -145,28 +146,27 @@
 (def new-xml (zip-walk convert-pags groupstore-zip))
 ;(prn new-xml)
 ;(zip-walk print-tag (zip/xml-zip new-xml))
-(System/exit 0)
 
 ;; Create a sequence of the groups as elements
 
-;(def group-seq (dzx/xml-> (zip/xml-zip new-xml) :group))
-(def group-seq (->> groupstore-xml
-                    :content
-                    (filter #(= (:tag %) :group))))
+(def group-locs (dzx/xml-> (zip/xml-zip new-xml) :pags-group))
+;(def group-locs (->> groupstore-xml
+;                    :content
+;                    (filter #(= (:tag %) :group))))
 
 (println)
-(println (count group-seq))
-(println (count (dzx/xml-> groupstore-zip :group)))
-(println (zip/node (first (dzx/xml-> groupstore-zip :group))))
+;(println (count group-locs))
+;(println (count (dzx/xml-> groupstore-zip :group)))
 ;(println)
-;(prn (first group-seq))
+(println (zip/node (first group-locs)))
 
 
 ;; Print each <pags-group> in a separate file based on <name>
 
 (defn get-group-name
-  [group]
-  (->> group
+  [group-loc]
+  (->> group-loc
+       zip/node
        :content
        (filter #(= (:tag %) :name))
        first
@@ -174,14 +174,15 @@
        first))
 
 (defn calc-group-filename
-  [group]
-  (-> group
+  [group-loc]
+  (-> group-loc
       get-group-name
       (clojure.string/replace #" " "_")
       (str ".pags-group.xml")))
 
-;(println "3rd pags name:" (get-group-name (nth group-seq 2)))
-;(println "3rd pags filename:" (calc-group-filename (nth group-seq 2)))
+(println "3rd pags name:" (get-group-name (nth group-locs 2)))
+(println "3rd pags filename:" (calc-group-filename (nth group-locs 2)))
+(System/exit 0)
 
 ; Found this by web search, so not going to tweak it to write directly to file
 (defn ppxml [xml]
@@ -205,11 +206,13 @@
     (-> out .getWriter .toString)))
 
 (defn write-group-to-file
-  [group]
-  (let [filename (file output-dir (calc-group-filename group))]
+  [group-loc]
+  (let [filename (file output-dir (calc-group-filename group-loc))]
     (try
-      (let [xml-str (-> group
-                        emit
+      (println filename)
+      (let [xml-str (-> group-loc
+                        zip/node
+                        xml/emit
                         with-out-str
                         (clojure.string/replace #"&" "&amp;")
                         (clojure.string/replace #"\n" "")
@@ -218,8 +221,8 @@
       (catch Exception e (println "caught exception for" filename ":" (.getMessage e))))))
 
 
-;(-> group-seq
+;(-> group-locs
 ;    (nth 2)
 ;    write-group-to-file)
 
-(dorun (map write-group-to-file group-seq))
+(dorun (map write-group-to-file group-locs))
