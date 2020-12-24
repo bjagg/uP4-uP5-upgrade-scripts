@@ -165,13 +165,7 @@
 
 (defn get-group-name
   [group-loc]
-  (->> group-loc
-       zip/node
-       :content
-       (filter #(= (:tag %) :name))
-       first
-       :content
-       first))
+  (dzx/xml1-> group-loc :name text))
 
 (defn calc-group-filename
   [group-loc]
