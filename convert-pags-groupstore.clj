@@ -165,7 +165,7 @@
 
 (defn get-group-name
   [group-loc]
-  (dzx/xml1-> group-loc :name text))
+  (dzx/xml1-> group-loc :name dzx/text))
 
 (defn calc-group-filename
   [group-loc]
