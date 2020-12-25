@@ -4,13 +4,13 @@
 (deps '[[org.clojure/data.xml "0.0.8"]
         [org.clojure/data.zip "1.0.0"]])
 
-(require '(clojure [zip :as zip :refer (xml-zip children end? root next branch? edit remove node)]
-                   [string :as s :refer (split split-lines trim replace-first)]
-                   [pprint :as pp :refer (pprint print-table)])
-         '(clojure.java [io :as io :refer (as-file file input-stream)])
-         '(clojure.data [zip :as dz]
-                        [xml :as xml])
-         '(clojure.data.zip [xml :as dzx]))
+(require '(clojure [zip :as zip :only (xml-zip children end? root next branch? edit remove node)]
+                   [string :refer (replace-first)]
+                   [pprint :refer (pprint)]
+                   [xml :refer (emit parse)])
+         '(clojure.java [io :refer (as-file file input-stream)])
+         ;'(clojure.data [xml :as xml]) -- parse and emit from this package should be better than clojure.xml, but they aren't
+         '(clojure.data.zip [xml :refer (text xml-> xml1->)]))
 
 (import '[javax.xml.parsers SAXParserFactory])
 
@@ -20,7 +20,7 @@
 ;;
 
 (def groupstore-filename (nth *command-line-args* 1))
-(def groupstore-file (io/as-file groupstore-filename))
+(def groupstore-file (as-file groupstore-filename))
 
 (if (.exists groupstore-file)
   (println "File" groupstore-filename "found")
@@ -34,21 +34,31 @@
 
 (defn get-valid-output-dir
   []
-  (if-let [file (io/as-file (nth *command-line-args* 2 nil))]
-    (if (or (.isDirectory file) (.mkdirs file))
-      (.getAbsolutePath file)
+  (if-let [afile (as-file (nth *command-line-args* 2 nil))]
+    (if (or (.isDirectory afile) (.mkdirs afile))
+      (.getAbsolutePath afile)
       ".")
     "."))
 
 (def output-dir (get-valid-output-dir))
 
-(println output-dir)
+(println "Output directory:" output-dir)
 
 ;;
 ;; Parse file into a xml zipper
 ;;
 
-(def groupstore-xml (xml/parse (io/input-stream groupstore-file)))
+(defn non-validating [s ch]
+  (..
+    (doto
+      (SAXParserFactory/newInstance)
+      (.setFeature 
+      "http://apache.org/xml/features/nonvalidating/load-external-dtd" false))
+    (newSAXParser)
+    (parse s ch)))
+
+;(def groupstore-xml (xml/parse (input-stream groupstore-file) :coalescing true))
+(def groupstore-xml (parse groupstore-file non-validating))
 (def groupstore-zip (zip/xml-zip groupstore-xml))
 
 ;;
@@ -58,8 +68,8 @@
 (defn map-group-key-name
   "Returns a map from the group key to the name"
   []
-  (->> (dzx/xml-> groupstore-zip :group)
-       (map #(hash-map (dzx/xml1-> % :group-key dzx/text) (dzx/xml1-> % :group-name dzx/text)))
+  (->> (xml-> groupstore-zip :group)
+       (map #(hash-map (xml1-> % :group-key text) (xml1-> % :group-name text)))
        (into {})))
 
 (def key-name-remap (map-group-key-name))
@@ -131,7 +141,7 @@
 ;; Convert from old format to new format
 ;;
 
-;(println (zip/node (first (dzx/xml-> groupstore-zip :group))))
+;(println (zip/node (first (xml-> groupstore-zip :group))))
 ;(zip-walk print-tag groupstore-zip)
 
 ; note: comp functions are applied in reverse order
@@ -149,23 +159,23 @@
 
 ;; Create a sequence of the groups as elements
 
-(def group-locs (dzx/xml-> (zip/xml-zip new-xml) :pags-group))
+(def group-locs (xml-> (zip/xml-zip new-xml) :pags-group))
 ;(def group-locs (->> groupstore-xml
 ;                    :content
 ;                    (filter #(= (:tag %) :group))))
 
-(println)
-;(println (count group-locs))
-;(println (count (dzx/xml-> groupstore-zip :group)))
 ;(println)
-(println (zip/node (first group-locs)))
+;(println (count group-locs))
+;(println (count (xml-> groupstore-zip :group)))
+;(println)
+;(println (zip/node (first group-locs)))
 
 
 ;; Print each <pags-group> in a separate file based on <name>
 
 (defn get-group-name
   [group-loc]
-  (dzx/xml1-> group-loc :name dzx/text))
+  (xml1-> group-loc :name text))
 
 (defn calc-group-filename
   [group-loc]
@@ -174,9 +184,8 @@
       (clojure.string/replace #" " "_")
       (str ".pags-group.xml")))
 
-(println "3rd pags name:" (get-group-name (nth group-locs 2)))
-(println "3rd pags filename:" (calc-group-filename (nth group-locs 2)))
-(System/exit 0)
+;(println "3rd pags name:" (get-group-name (nth group-locs 2)))
+;(println "3rd pags filename:" (calc-group-filename (nth group-locs 2)))
 
 ; Found this by web search, so not going to tweak it to write directly to file
 (defn ppxml [xml]
@@ -203,10 +212,9 @@
   [group-loc]
   (let [filename (file output-dir (calc-group-filename group-loc))]
     (try
-      (println filename)
       (let [xml-str (-> group-loc
                         zip/node
-                        xml/emit
+                        emit
                         with-out-str
                         (clojure.string/replace #"&" "&amp;")
                         (clojure.string/replace #"\n" "")
