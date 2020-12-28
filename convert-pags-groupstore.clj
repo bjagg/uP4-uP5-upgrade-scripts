@@ -62,8 +62,16 @@
 (def groupstore-zip (zip/xml-zip groupstore-xml))
 
 ;;
+;; Overrides for well-known PAGS
+;;
+
+(def key-name-overrides {"all_users" "All Users (PAGS)"})
+(def name-remap {"PAGS - All Users" "All Users (PAGS)"})
+
+;;
 ;; Create map of old group keys to group names
 ;;
+
 
 (defn map-group-key-name
   "Returns a map from the group key to the name"
@@ -72,8 +80,8 @@
        (map #(hash-map (xml1-> % :group-key text) (xml1-> % :group-name text)))
        (into {})))
 
-(def key-name-remap (map-group-key-name))
-;(pp/pprint key-name-remap)
+(def key-name-remap (merge (map-group-key-name) key-name-overrides))
+;(prn key-name-remap)
 
 ;;
 ;; Functions for manipulating xml-zip
@@ -128,9 +136,12 @@
 
 (defn remap-content-text
   "Map the content text to new value based on a map"
-  [tag content-map]
-  (let [f #(assoc % :content (vector (get content-map (-> % :content first) "no key found")))]
-    (edit-by-tag tag f)))
+  ([tag content-map]
+   (let [f #(assoc % :content (vector (get content-map (-> % :content first) (-> % :content first))))]
+     (edit-by-tag tag f)))
+  ([tag content-map default]
+   (let [f #(assoc % :content (vector (get content-map (-> % :content first) default)))]
+     (edit-by-tag tag f))))
 
 (defn add-attr-map
   "Add an map of attributes to a tag"
@@ -150,7 +161,8 @@
                         (rename-tag :group-description :description)
                         (rename-tag :group-name :name)
                         (rename-tag :member-key :member-name)
-                        (remap-content-text :member-key key-name-remap)
+                        (remap-content-text :member-key key-name-remap "no key found")
+                        (remap-content-text :group-name name-remap)
                         (replace-content-text :tester-class #"jasig" "apereo")
                         (add-attr-map :group {:script "classpath://org/jasig/portal/io/import-pags-group_v4-1.crn"})))
 (def new-xml (zip-walk convert-pags groupstore-zip))
